@@ -1,39 +1,75 @@
 #!/bin/bash
-# Script de lancement automatisé et sécurisé pour SIFT-F4S
 
-echo "[*] Virtual environnement configuration..."
-python3 -m venv ai_agent_env
+echo "[*] SIFT-F4S Boot Sequence..."
+
+
+if [ ! -d "ai_agent_env" ]; then
+    python3 -m venv ai_agent_env
+fi
+
 source ai_agent_env/bin/activate
 
-echo "[*] Requirements downloading..."
-pip install -r requirements.txt
+# -------------------------
+# DEPENDENCIES CHECK SAFE
+# -------------------------
+echo "[*] Checking dependencies..."
 
-# --- SECTION SÉCURITÉ DE LA CLÉ D'API ---
+if [ -f "requirements.txt" ]; then
+    pip install -r requirements.txt
+else
+    echo "[!] requirements.txt not found → skipping install"
+fi
+
+# -------------------------
+# GEMINI KEY
+# -------------------------
 if [ -z "$GEMINI_API_KEY" ]; then
-    echo "===================================================="
-    echo "  SECURITY: Missing GEMINI API key."
-    echo "===================================================="
-    # Le flag -s permet de masquer la saisie à l'écran (comme pour un mot de passe)
-    read -sp "[?] Plaste your Gemini API Key (mask is on) : " USER_KEY
+    echo "=================================================="
+    echo " GEMINI API KEY REQUIRED"
+    echo "=================================================="
+    read -sp "[?] Enter Gemini API Key: " USER_KEY
     echo ""
-    if [ -z "$USER_KEY" ]; then
-        echo "[-] Erreur : No key provided. Script stopped."
-        exit 1
-    fi
     export GEMINI_API_KEY="$USER_KEY"
 fi
-# ----------------------------------------
 
-echo "[*] Starting SIFT-F4S mcp server..."
+# -------------------------
+# CHECK MCP SERVER FILE
+# -------------------------
+if [ ! -f "build2.py" ]; then
+    echo "[-] build2.py not found"
+    exit 1
+fi
+
+# -------------------------
+# START MCP SERVER
+# -------------------------
+echo "[*] Starting MCP server..."
 python3 build2.py &
 SERVER_PID=$!
 
-# Laisser le temps au serveur MCP de démarrer
-sleep 5
+sleep 3
 
-echo "[*] Launch of the AI ​​Agent..."
-python3 agent.py
+# -------------------------
+# CHECK ARGUMENT
+# -------------------------
+if [ -z "$1" ]; then
+    echo "[-] Missing evidence path"
+    echo "Usage: ./run.sh <evidence_path>"
+    kill $SERVER_PID
+    exit 1
+fi
 
-# Nettoyage à l'arrêt : on coupe le serveur MCP proprement
+EVIDENCE_PATH=$1
+
+# -------------------------
+# RUN AGENT
+# -------------------------
+echo "[*] Launching SIFT-F4S Agent..."
+python3 agent.py "$EVIDENCE_PATH"
+
+# -------------------------
+# CLEAN SHUTDOWN
+# -------------------------
 kill $SERVER_PID
-echo "[*] SIFT-F4S successfully shut down. Process completed.."
+
+echo "[*] SIFT-F4S shutdown complete."

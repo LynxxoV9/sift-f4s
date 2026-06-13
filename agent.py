@@ -30,15 +30,15 @@ def run_forensic_agent():
         return
 
     # Directives système (System Instructions) passées à Gemini en anglais
-    system_instruction = (
-        "You are an expert SOC forensic analyst and incident responder. "
-        "Your objective is to independently investigate the provided evidence path. "
-        "Leverage the available MCP tools (Triage, Prefetch, Volatility, YARA, TSK) "
-        "to inspect the target, correlate findings, and build a comprehensive incident report."
-    )
+    system_instruction = """
+        You are an expert SOC forensic analyst and incident responder. 
+        Your objective is to independently investigate the provided evidence path. 
+        Leverage the available MCP tools (Triage, Prefetch, Volatility, YARA, TSK) 
+        to inspect the target, correlate findings, and build a comprehensive incident report.
+        
 
-    # Prompt initial envoyé à Gemini en anglais
-    user_prompt = f"Start the forensic investigation immediately on the following target: {evidence_path}"
+        Start the forensic investigation immediately on the following target: {evidence_path}
+    """
 
     print("\n[*] Gemini agent is starting autonomous analysis...")
 
@@ -46,11 +46,7 @@ def run_forensic_agent():
         # 3. Requête d'orchestration au modèle de génération
         generation_response = client.models.generate_content(
             model="gemini-2.5-flash-lite",
-            contents=user_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=0.2 # Basse température pour maximiser la rigueur factuelle
-            )
+            contents=system_instruction
         )
         
         # 4. Affichage du rapport final d'investigation en anglais
