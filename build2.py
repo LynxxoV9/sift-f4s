@@ -175,7 +175,7 @@ def run_custom_yara_scan(target_path: str, rules_path: str = "~/sift-f4s/sentine
         return {"status": "error", "message": str(exception_error)}
 
 
-# --- 5. NOUVEL OUTIL : ANALYSE PCAP / DUMP RÉSEAU ---
+# --- 5.  ANALYSE PCAP / DUMP RÉSEAU ---
 
 @mcp.tool()
 def analyze_network_dump(pcap_path: str) -> dict:
@@ -217,6 +217,50 @@ def analyze_network_dump(pcap_path: str) -> dict:
 
     except Exception as exception_error:
         return {"status": "error", "message": str(exception_error)}
+
+
+#---6.The Sleuth Kit ---
+
+@mcp.tool()
+def analyze_disk_image_tsk(image_path: str) -> str:
+    """
+    Analyze a disk image using The Sleuth Kit (TSK).
+    Returns partition information and filesystem details.
+    """
+
+    if not os.path.exists(image_path):
+        return f"Image not found: {image_path}"
+
+    result = {
+        "image": image_path,
+        "mmls": "",
+        "fsstat": ""
+    }
+
+    try:
+        mmls_output = subprocess.check_output(
+            ["mmls", image_path],
+            text=True,
+            stderr=subprocess.STDOUT
+        )
+        result["mmls"] = mmls_output
+
+    except Exception as e:
+        result["mmls"] = f"Error running mmls: {e}"
+
+    try:
+        fsstat_output = subprocess.check_output(
+            ["fsstat", image_path],
+            text=True,
+            stderr=subprocess.STDOUT
+        )
+        result["fsstat"] = fsstat_output
+
+    except Exception as e:
+        result["fsstat"] = f"Error running fsstat: {e}"
+
+    return json.dumps(result, indent=2)
+
 
 
 if __name__ == "__main__":
