@@ -1,4 +1,10 @@
 # Ignorer l'environnement virtuel Python
+
+uploads/
+ai-env/
+ai_agent_env/
+venv/
+
 ai-env/
 ai_agent_env/
 venv/
