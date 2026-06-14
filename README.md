@@ -457,13 +457,13 @@ This separation ensures maintainability and scalability.
 
 Project Lead
 
-Olivier Fiabi (Lynxxo_ven)
+FIABI Kokou Olivier (Lynxxo_ven) & BAWA Abdoul-Rachid (Airkid)
 
 Cybersecurity & Cybercrime Student
 ESA Togo
 
 Project Context
 
-AI-Assisted Digital Forensics and Incident Response Platform
+AI-Assisted Digital Forensics and Incident Response Platform 
 
 2026
