@@ -1,62 +1,101 @@
 import os
 import sys
+import json
 from google import genai
-from google.genai import types
 from google.genai.types import HttpOptions
 
-
+# vérification clé Gemini
 if not os.environ.get("GEMINI_API_KEY"):
-    print("[-] Erreur : La variable d'environnement GEMINI_API_KEY n'est pas configurée.")
-    print("[*] Check-Check : Exécutez 'export GEMINI_API_KEY=\"votre_cle\"' avant de lancer.")
+    print("[-] GEMINI_API_KEY non définie")
     sys.exit(1)
 
-# 1. Configuration du client Gemini
 client = genai.Client(
     http_options=HttpOptions(api_version="v1")
 )
 
+from orchestrator import run_pipeline
+
+
+def build_prompt(evidence_path, findings):
+    return f"""
+You are a DFIR expert analyzing a forensic case.
+
+========================
+EVIDENCE PATH
+========================
+{evidence_path}
+
+========================
+ORCHESTRATOR FINDINGS
+========================
+{json.dumps(findings, indent=2)}
+
+========================
+TASK
+========================
+1. Analyze all artifacts
+2. Correlate system, memory and yara detections
+3. Identify possible intrusion or malicious behavior
+4. Produce a structured DFIR report with:
+   - Executive Summary
+   - Technical Findings
+   - Indicators of Compromise (IOCs)
+   - Conclusion
+
+IMPORTANT:
+Only use the provided structured findings.
+Do not assume missing memory results.
+If memory.status is not success, explicitly state limitation.
+"""
+
+
 def run_forensic_agent():
+
     print("=" * 50)
-    print("        SIFT-F4S : AUTOMATED DFIR AGENT        ")
+    print("        SIFT-F4S DFIR AGENT (v2)        ")
     print("=" * 50)
-    
-    # Demande du chemin de la preuve en anglais
-    evidence_path = input("\n[+] Enter the absolute path of the evidence to analyze: ").strip()
-    
-    # Validation de l'existence de la cible avant traitement
+
+    if len(sys.argv) < 2:
+        print("Usage: python3 agent.py <evidence_path>")
+        sys.exit(1)
+
+    evidence_path = sys.argv[1]
+
     if not os.path.exists(evidence_path):
-        # Message d'erreur conservé en français
-        print(f"[-] Erreur : Le fichier ou dossier '{evidence_path}' n'existe pas.")
-        return
+        print(f"[-] Evidence introuvable : {evidence_path}")
+        sys.exit(1)
 
-    # Directives système (System Instructions) passées à Gemini en anglais
-    system_instruction = """
-        You are an expert SOC forensic analyst and incident responder. 
-        Your objective is to independently investigate the provided evidence path. 
-        Leverage the available MCP tools (Triage, Prefetch, Volatility, YARA, TSK) 
-        to inspect the target, correlate findings, and build a comprehensive incident report.
-        
+    print(f"[*] Evidence : {evidence_path}")
+    print("[*] Lancement du pipeline orchestrateur...")
 
-        Start the forensic investigation immediately on the following target: {evidence_path}
-    """
+    findings = run_pipeline(evidence_path)
 
-    print("\n[*] Gemini agent is starting autonomous analysis...")
+    print("[*] Envoi des findings à Gemini...")
+
+    prompt = build_prompt(evidence_path, findings)
 
     try:
-        # 3. Requête d'orchestration au modèle de génération
-        generation_response = client.models.generate_content(
+        response = client.models.generate_content(
             model="gemini-2.5-flash-lite",
-            contents=system_instruction
+            contents=prompt
         )
-        
-        # 4. Affichage du rapport final d'investigation en anglais
-        print("\n" + "=" * 20 + " GENERATED FORENSIC REPORT " + "=" * 20)
-        print(generation_response.text)
-        print("=" * 68)
-        
-    except Exception as exception_error:
-        # Gestion de l'exception et affichage de l'erreur en français
-        print(f"\n[!] Échec de l'agent ! Détails de l'erreur : {exception_error}")
+
+        report = response.text
+
+        print("\n" + "=" * 20 + " FORENSIC REPORT " + "=" * 20)
+        print(report)
+        print("=" * 60)
+
+        os.makedirs("reports", exist_ok=True)
+        with open("reports/report.md", "w") as f:
+            f.write(report)
+
+        print("[+] Rapport sauvegardé dans reports/report.md")
+
+    except Exception as e:
+        print(f"[!] Erreur Gemini : {e}")
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     run_forensic_agent()

@@ -1,4 +1,5 @@
 import os
+import json
 import platform
 import subprocess
 import shutil
@@ -6,8 +7,10 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("SIFT-F4S-SERVER")
 
+LINUX_MEMORY_EXTENSIONS = {".lime", ".mddramimage", ".mem"}
 
-# --- 1. OUTILS DE DIAGNOSTIC ET TRIAGE ---
+
+# --- 1. DIAGNOSTIC ---
 
 @mcp.tool()
 def get_sys_info() -> dict:
@@ -24,30 +27,26 @@ def list_forensic_directory(target_path: str) -> list:
     absolute_path = os.path.abspath(os.path.expanduser(target_path))
 
     if not os.path.exists(absolute_path):
-        return [f"Erreur : Le chemin {target_path} n'existe pas."]
+        return [f"Erreur : {target_path} n'existe pas."]
 
     try:
         files = os.listdir(absolute_path)
         result = []
-
         for file in files:
             full_file_path = os.path.join(absolute_path, file)
             is_dir = os.path.isdir(full_file_path)
             size = os.path.getsize(full_file_path) if not is_dir else 0
-
             result.append({
                 "name": file,
                 "type": "directory" if is_dir else "file",
                 "size_bytes": size
             })
-
         return result
+    except Exception as e:
+        return [f"Erreur : {str(e)}"]
 
-    except Exception as exception_error:
-        return [f"Erreur lors de la lecture du répertoire : {str(exception_error)}"]
 
-
-# --- 2. PREFETCH ANALYSIS ---
+# --- 2. PREFETCH ---
 
 @mcp.tool()
 def analyze_prefetch_file(prefetch_path: str) -> dict:
@@ -62,19 +61,11 @@ def analyze_prefetch_file(prefetch_path: str) -> dict:
         try:
             completed_process = subprocess.run(
                 [pecmd_binary, "-f", absolute_path, "--json", "/tmp/pf_out"],
-                capture_output=True,
-                text=True,
-                timeout=30
+                capture_output=True, text=True, timeout=30
             )
-
-            return {
-                "status": "success",
-                "tool_used": "PECmd",
-                "output": completed_process.stdout
-            }
-
-        except Exception as exception_error:
-            return {"error": str(exception_error)}
+            return {"status": "success", "tool_used": "PECmd", "output": completed_process.stdout}
+        except Exception as e:
+            return {"error": str(e)}
 
     try:
         file_stat = os.stat(absolute_path)
@@ -84,9 +75,8 @@ def analyze_prefetch_file(prefetch_path: str) -> dict:
             "created_time": file_stat.st_ctime,
             "modified_time": file_stat.st_mtime
         }
-
-    except Exception as exception_error:
-        return {"error": str(exception_error)}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # --- 3. VOLATILITY ---
@@ -108,33 +98,29 @@ def run_volatility_pslist(memory_dump_path: str, profile: str = "") -> dict:
     if profile:
         command.extend(["--profile", profile])
 
-    command.append(
-        "linux.pslist"
-        if "linux" in profile.lower()
-        else "windows.pslist"
-        if profile
-        else "pslist"
-    )
+    # détection Linux/Windows par extension
+    ext = os.path.splitext(absolute_dump_path)[1].lower()
+    if ext in LINUX_MEMORY_EXTENSIONS:
+        plugin = "linux.pslist.PsList"
+    else:
+        plugin = "windows.pslist.PsList"
+
+    command.append(plugin)
 
     try:
         completed_process = subprocess.run(command, capture_output=True, text=True, timeout=60)
 
         if completed_process.returncode != 0:
-            return {
-                "status": "failed",
-                "error": completed_process.stderr
-            }
+            return {"status": "failed", "error": completed_process.stderr}
 
         output_lines = completed_process.stdout.split("\n")
-
         return {
             "status": "success",
             "tool_used": volatility_binary,
             "output_preview": "\n".join(output_lines[:50])
         }
-
-    except Exception as exception_error:
-        return {"error": str(exception_error)}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # --- 4. YARA ---
@@ -151,31 +137,22 @@ def run_custom_yara_scan(target_path: str, rules_path: str = "~/sift-f4s/sentine
         return {"status": "error", "message": "rules introuvable"}
 
     yara_binary = shutil.which("yara")
-
     if not yara_binary:
         return {"status": "error", "message": "yara introuvable"}
 
     try:
         completed_process = subprocess.run(
-            [yara_binary, absolute_rules, absolute_target],
-            capture_output=True,
-            text=True,
-            timeout=30
+            [yara_binary, "-r", absolute_rules, absolute_target],
+            capture_output=True, text=True, timeout=30
         )
-
         output = completed_process.stdout + completed_process.stderr
         matches = [line for line in output.split("\n") if line.strip()]
-
-        return {
-            "status": "success",
-            "detections": matches
-        }
-
-    except Exception as exception_error:
-        return {"status": "error", "message": str(exception_error)}
+        return {"status": "success", "detections": matches}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
-# --- 5.  ANALYSE PCAP / DUMP RÉSEAU ---
+# --- 5. PCAP ---
 
 @mcp.tool()
 def analyze_network_dump(pcap_path: str) -> dict:
@@ -185,82 +162,51 @@ def analyze_network_dump(pcap_path: str) -> dict:
         return {"status": "error", "message": "PCAP introuvable"}
 
     tshark_binary = shutil.which("tshark")
-
     if not tshark_binary:
         return {"status": "error", "message": "tshark non installé"}
 
     try:
         command = [
-            tshark_binary,
-            "-r",
-            absolute_path,
-            "-T",
-            "fields",
-            "-e",
-            "ip.src",
-            "-e",
-            "ip.dst",
-            "-e",
-            "tcp.port"
+            tshark_binary, "-r", absolute_path,
+            "-T", "fields",
+            "-e", "ip.src", "-e", "ip.dst", "-e", "tcp.port"
         ]
-
         completed_process = subprocess.run(command, capture_output=True, text=True, timeout=60)
-
         lines = completed_process.stdout.split("\n")
-
         return {
             "status": "success",
             "tool_used": "tshark",
             "total_packets": len(lines),
             "preview": lines[:50]
         }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
-    except Exception as exception_error:
-        return {"status": "error", "message": str(exception_error)}
 
-
-#---6.The Sleuth Kit ---
+# --- 6. THE SLEUTH KIT ---
 
 @mcp.tool()
 def analyze_disk_image_tsk(image_path: str) -> str:
-    """
-    Analyze a disk image using The Sleuth Kit (TSK).
-    Returns partition information and filesystem details.
-    """
-
     if not os.path.exists(image_path):
         return f"Image not found: {image_path}"
 
-    result = {
-        "image": image_path,
-        "mmls": "",
-        "fsstat": ""
-    }
+    result = {"image": image_path, "mmls": "", "fsstat": ""}
 
     try:
-        mmls_output = subprocess.check_output(
-            ["mmls", image_path],
-            text=True,
-            stderr=subprocess.STDOUT
+        result["mmls"] = subprocess.check_output(
+            ["mmls", image_path], text=True, stderr=subprocess.STDOUT
         )
-        result["mmls"] = mmls_output
-
     except Exception as e:
-        result["mmls"] = f"Error running mmls: {e}"
+        result["mmls"] = f"Erreur mmls : {e}"
 
     try:
-        fsstat_output = subprocess.check_output(
-            ["fsstat", image_path],
-            text=True,
-            stderr=subprocess.STDOUT
+        result["fsstat"] = subprocess.check_output(
+            ["fsstat", image_path], text=True, stderr=subprocess.STDOUT
         )
-        result["fsstat"] = fsstat_output
-
     except Exception as e:
-        result["fsstat"] = f"Error running fsstat: {e}"
+        result["fsstat"] = f"Erreur fsstat : {e}"
 
     return json.dumps(result, indent=2)
-
 
 
 if __name__ == "__main__":
