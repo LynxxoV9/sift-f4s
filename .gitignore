@@ -1,4 +1,5 @@
 # Ignorer l'environnement virtuel Python
+ai-env/
 ai_agent_env/
 venv/
 __pycache__/
